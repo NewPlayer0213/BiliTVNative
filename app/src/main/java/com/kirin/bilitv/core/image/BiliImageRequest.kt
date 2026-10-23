@@ -5,6 +5,8 @@ import com.kirin.bilitv.core.network.BiliHeaders
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.size.Precision
+import coil.transform.CircleCropTransformation
+import coil.transform.RoundedCornersTransformation
 
 object BiliImageSizing {
   const val StandardVideoThumbnailWidthPx = 480
@@ -21,9 +23,12 @@ fun buildVideoThumbnailRequest(
   heightPx: Int = BiliImageSizing.StandardVideoThumbnailHeightPx,
   allowRgb565: Boolean = false,
   memoryCacheEnabled: Boolean = true,
+  cornerRadiusPx: Float = 0f,
 ): ImageRequest {
   return ImageRequest.Builder(context)
     .data(url.biliCdnResizedImageUrl(widthPx, heightPx))
+    // The card's top corners only: the cover meets the info strip flat, with no notch to paint under.
+    .apply { if (cornerRadiusPx > 0f) transformations(RoundedCornersTransformation(topLeft = cornerRadiusPx, topRight = cornerRadiusPx)) }
     .addBiliImageHeaders()
     .size(widthPx, heightPx)
     .precision(Precision.INEXACT)
@@ -39,9 +44,11 @@ fun buildOwnerAvatarRequest(
   sizePx: Int = BiliImageSizing.StandardOwnerAvatarSizePx,
   allowRgb565: Boolean = false,
   memoryCacheEnabled: Boolean = true,
+  circleCrop: Boolean = false,
 ): ImageRequest {
   return ImageRequest.Builder(context)
     .data(url.biliCdnResizedImageUrl(sizePx, sizePx))
+    .apply { if (circleCrop) transformations(CircleCropTransformation()) }
     .addBiliImageHeaders()
     .size(sizePx, sizePx)
     .precision(Precision.INEXACT)

@@ -1,6 +1,7 @@
 package com.kirin.bilitv
 
 import android.app.Application
+import com.kirin.bilitv.core.i18n.ChineseTextConverters
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -14,6 +15,7 @@ class BiliTvApplication : Application(), ImageLoaderFactory {
   override fun onCreate() {
     super.onCreate()
     appContainer = AppContainer(this)
+    ChineseTextConverters.warmUp()
   }
 
   override fun newImageLoader(): ImageLoader {

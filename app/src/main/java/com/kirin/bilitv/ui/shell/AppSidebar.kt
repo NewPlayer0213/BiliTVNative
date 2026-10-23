@@ -31,6 +31,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -85,7 +86,9 @@ internal fun AppSidebar(
     bottomEnd = BiliRadius.Sidebar,
     bottomStart = BiliRadius.Sidebar,
   )
-  val sidebarBackground = if (cinematicVisualsEnabled) {
+  val sidebarBackground = if (!performancePolicy.motionEnabled) {
+    SolidColor(homeColors.sidebarSurface)
+  } else if (cinematicVisualsEnabled) {
     Brush.horizontalGradient(
       colors = listOf(
         homeColors.sidebarSurface.copy(alpha = BiliFocus.HomeSidebarCinematicStartAlpha),
@@ -111,7 +114,7 @@ internal fun AppSidebar(
     modifier = Modifier
       .width(BiliSizing.SidebarWidth)
       .fillMaxHeight()
-      .clip(sidebarShape)
+      .then(if (performancePolicy.motionEnabled) Modifier.clip(sidebarShape) else Modifier)
       .then(
         if (liquidGlassEnabled) {
           Modifier.biliLiquidGlassSurface(
@@ -123,7 +126,7 @@ internal fun AppSidebar(
           )
         } else {
           Modifier
-            .background(sidebarBackground)
+            .background(sidebarBackground, sidebarShape)
             .border(BorderStroke(BiliFocus.RestingBorderWidth, sidebarBorder), sidebarShape)
         },
       )

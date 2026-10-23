@@ -190,11 +190,32 @@ internal class RecommendViewModel(
 
     firstPageJobs[section.key] = viewModelScope.launch {
       val nextState = try {
-        val videos = videoRepository.getHomeSectionVideos(
-          section = section,
-          page = FirstPage,
-          idx = if (section == HomeSection.Recommend) refreshKey else 0,
-        )
+        // The first load of the recommend feed (refreshKey 0: at launch, or when the section is first opened)
+        // shows the page saved last time and fetches the one for next time, so the first frame has content
+        // instead of a spinner and nothing jumps when the network answers. With nothing saved yet, the page
+        // fetched now is the one kept.
+        val launchCache = section == HomeSection.Recommend && refreshKey == 0
+        val cached = if (launchCache) videoRepository.peekRecommendVideos() else null
+        val videos = when {
+          cached != null -> cached
+          launchCache -> videoRepository.getRecommendVideos(idx = refreshKey, keepForNextLaunch = true)
+          else -> videoRepository.getHomeSectionVideos(
+            section = section,
+            page = FirstPage,
+            idx = if (section == HomeSection.Recommend) refreshKey else 0,
+          )
+        }
+        if (cached != null) {
+          launch {
+            try {
+              videoRepository.cacheRecommendVideos()
+            } catch (error: CancellationException) {
+              throw error
+            } catch (_: Exception) {
+              // The saved page stays; the next launch tries again.
+            }
+          }
+        }
         if (videos.isEmpty()) {
           RecommendState.Empty
         } else {

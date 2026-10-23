@@ -118,15 +118,21 @@ data class AppPerformancePolicy(
       visualPerformanceMode = AppVisualPerformanceMode.Smooth,
       motionEnabled = false,
       smoothScrollingEnabled = false,
-      videoThumbnailWidthPx = 320,
-      videoThumbnailHeightPx = 180,
-      videoThumbnailRgb565Enabled = true,
+      // At the size the card draws them (about 480 px wide at 1080p), so the baked corners keep their radius.
+      // Baked corners and circles are transformations, which make Coil decode ARGB_8888 (RGB_565 cannot hold
+      // the transparent corners), about 500 KB a cover: the RGB_565 switches would be dead, so they are off.
+      videoThumbnailWidthPx = 480,
+      videoThumbnailHeightPx = 270,
+      videoThumbnailRgb565Enabled = false,
       ownerAvatarSizePx = 48,
-      ownerAvatarRgb565Enabled = true,
-      imageMemoryCacheEnabled = false,
-      videoThumbnailPrefetchCount = 0,
+      ownerAvatarRgb565Enabled = false,
+      // Covers come from the CDN with a few hundred ms of latency: keep the decoded ones and fetch four rows
+      // past the focus, or a scan keeps meeting grey tiles.
+      imageMemoryCacheEnabled = true,
+      videoThumbnailPrefetchCount = 16,
       focusShadowEnabled = false,
-      loadMoreFocusThreshold = 6,
+      // Pages hold 20; asking for the next one 6 items from the end left the grid waiting on the network.
+      loadMoreFocusThreshold = 18,
       focusedCoverBlurEnabled = false,
       refinedVisualEffectsEnabled = false,
       cinematicVisualEffectsEnabled = false,

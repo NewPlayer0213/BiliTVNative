@@ -50,6 +50,7 @@ class AppContainer(context: Context) {
     wbiKeyRepository = wbiKeyRepository,
     wbiSigner = wbiSigner,
     sessionStore = sessionStore,
+    recommendCacheFile = appContext.cacheDir.resolve("recommend-next-launch.json"),
   )
   val playbackRepository: PlaybackRepository = PlaybackRepository(
     apiClient = apiClient,

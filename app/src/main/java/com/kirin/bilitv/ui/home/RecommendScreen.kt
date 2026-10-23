@@ -337,6 +337,8 @@ private fun HomeSectionTab(
       }
       .onPreviewKeyEvent { event ->
         when {
+          // Nothing sits above the tabs; without this, Up lands on a tab clipped out of the capsule and loads its feed.
+          event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp -> true
           event.type == KeyEventType.KeyDown &&
             event.key == Key.DirectionLeft &&
             onMoveLeftToNav != null -> onMoveLeftToNav()

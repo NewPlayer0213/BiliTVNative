@@ -279,6 +279,13 @@ object BiliMotion {
   const val FocusScrollDelayMs = 60L
   const val FocusScrollSettleMs = 120L
   const val FocusScrollMinDeltaPx = 50
+  // A held key moves one row per HeldRowMs, and an edge slide then takes the whole interval, so a scan runs at
+  // one even pace whether the focus is walking the screen or the grid is sliding.
+  const val HeldRowMs = 600L
+  // The slide when the grid shifts a row at its edge: about six frames on a TV that draws one in ~60 ms. Timed,
+  // not counted in frames: vsync callbacks keep coming at 60 Hz while the GPU is behind, so six frame steps
+  // collapsed into a 100 ms blink. Linear, because with so few frames an ease-out is one jump and a crawl.
+  const val EdgeShiftMs = 360
   const val FocusedCoverBlurDelayMs = 90L
   const val FocusShineMs = 700
   const val FocusShineInitialDelayMs = 2_000L

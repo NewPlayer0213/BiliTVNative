@@ -1,9 +1,12 @@
 package com.kirin.bilitv.ui.home
 
+import android.os.SystemClock
+
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,12 +17,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -134,7 +139,12 @@ internal fun TvVideoGrid(
   } else {
     restoreTargetIndex / columns
   }
-  val listState = rememberLazyListState(initialFirstVisibleItemIndex = restoreTargetRow)
+  // Rows about three ahead and one behind stay composed, so a new row is not composed in the first frame of
+  // its own scroll: on a TV that renders a frame in ~50 ms that was a ~100 ms hitch on every row.
+  val listState = rememberLazyListState(
+    cacheWindow = remember { LazyLayoutCacheWindow(aheadFraction = 1.2f, behindFraction = 0.4f) },
+    initialFirstVisibleItemIndex = restoreTargetRow,
+  )
   val coroutineScope = rememberCoroutineScope()
   val performancePolicy = LocalBiliPerformancePolicy.current
   val density = LocalDensity.current
@@ -149,6 +159,11 @@ internal fun TvVideoGrid(
   var focusedIndex by remember { mutableIntStateOf(-1) }
   var navigationEntryTargetIndex by remember { mutableIntStateOf(0) }
   var rowScrollActive by remember { mutableStateOf(false) }
+  // When the last vertical move was accepted: a held key repeats every ~50 ms and is paced by HeldRowMs.
+  val lastVerticalMoveAt = remember { mutableLongStateOf(0L) }
+  // A tap that lands while a row is still sliding: it runs as soon as the slide ends, so the focus never
+  // leaves the row the grid is bringing into view and no press is lost.
+  var pendingMove by remember { mutableStateOf<Key?>(null) }
   var rowScrollGeneration by remember { mutableIntStateOf(0) }
   val focusScale = when {
     !performancePolicy.motionEnabled -> 1f
@@ -174,7 +189,7 @@ internal fun TvVideoGrid(
       }
   }
 
-  suspend fun scrollRow(row: Int, smoothScroll: Boolean) {
+  suspend fun scrollRow(row: Int, smoothScroll: Boolean, linear: Boolean = false) {
     listState.scrollRowIntoStablePosition(
       row = row,
       totalRows = rowCount,
@@ -183,6 +198,7 @@ internal fun TvVideoGrid(
       focusedRowTopPaddingPx = focusedRowTopPaddingPx,
       focusScale = focusScale,
       smoothScroll = smoothScroll,
+      linear = linear,
     )
   }
 
@@ -227,7 +243,7 @@ internal fun TvVideoGrid(
     }
   }
 
-  fun scrollThenFocusItem(index: Int, row: Int) {
+  fun scrollThenFocusItem(index: Int, row: Int, repeat: Boolean = false) {
     focusScrollJob?.cancel()
     val scrollGeneration = ++rowScrollGeneration
     rowScrollActive = true
@@ -236,16 +252,26 @@ internal fun TvVideoGrid(
       try {
         if (smoothScroll) {
           val scrollJob = launch {
-            scrollRow(row, smoothScroll = true)
+            // Held key: rows at constant speed with no settle pause, so they join into one continuous scroll.
+            scrollRow(row, smoothScroll = true, linear = repeat)
           }
           delay(BiliMotion.FocusScrollDelayMs)
           focusItem(index)
           scrollJob.join()
-          delay(BiliMotion.FocusScrollSettleMs)
+          if (!repeat) delay(BiliMotion.FocusScrollSettleMs)
         } else {
-          scrollRow(row, smoothScroll = false)
+          val shift = launch {
+            listState.scrollRowIntoView(
+              row = row,
+              scrollInsetPx = focusScrollInsetPx,
+              focusedRowTopPaddingPx = focusedRowTopPaddingPx,
+              focusScale = focusScale,
+              durationMs = if (repeat) BiliMotion.HeldRowMs.toInt() else BiliMotion.EdgeShiftMs,
+            )
+          }
           withFrameNanos { }
           focusItem(index)
+          shift.join()
         }
       } finally {
         if (rowScrollGeneration == scrollGeneration) {
@@ -255,7 +281,7 @@ internal fun TvVideoGrid(
     }
   }
 
-  fun moveFocus(fromIndex: Int, direction: Key): Boolean {
+  fun moveFocus(fromIndex: Int, direction: Key, repeat: Boolean = false): Boolean {
     val currentRow = fromIndex / columns
     val currentColumn = fromIndex % columns
     val lastIndex = videos.lastIndex
@@ -282,8 +308,18 @@ internal fun TvVideoGrid(
       return focusItem(targetIndex)
     }
 
-    scrollThenFocusItem(targetIndex, targetIndex / columns)
+    scrollThenFocusItem(targetIndex, targetIndex / columns, repeat)
     return true
+  }
+
+  LaunchedEffect(rowScrollActive) {
+    if (rowScrollActive) return@LaunchedEffect
+    val key = pendingMove ?: return@LaunchedEffect
+    pendingMove = null
+    if (focusedIndex >= 0) {
+      lastVerticalMoveAt.longValue = SystemClock.uptimeMillis()
+      moveFocus(focusedIndex, key)
+    }
   }
 
   CompositionLocalProvider(LocalBringIntoViewSpec provides TvGridBringIntoViewSpec) {
@@ -351,7 +387,9 @@ internal fun TvVideoGrid(
               VideoCard(
                 video = video,
                 mode = cardMode,
-                interactionPaused = rowScrollActive,
+                // Only the marquee and the shine pause; with motion off neither exists, and flipping the
+                // flag would recompose every card at the start and end of each row shift.
+                interactionPaused = rowScrollActive && performancePolicy.motionEnabled,
                 modifier = Modifier
                   .weight(1f)
                   .then(
@@ -366,12 +404,27 @@ internal fun TvVideoGrid(
                     if (event.type != KeyEventType.KeyDown) {
                       return@onPreviewKeyEvent false
                     }
+                    val vertical = event.key == Key.DirectionUp || event.key == Key.DirectionDown
+                    val repeat = vertical && event.nativeKeyEvent.repeatCount > 0
+                    val now = SystemClock.uptimeMillis()
+                    // Without smooth scrolling a held key's repeat is dropped while a row shift is still running or
+                    // sooner than HeldRowMs after the last accepted move, so a scan runs at a steady pace; with it the
+                    // repeats chain into one continuous scroll as before.
+                    val paced = !performancePolicy.smoothScrollingEnabled
+                    if (repeat && paced && (rowScrollActive || now - lastVerticalMoveAt.longValue < BiliMotion.HeldRowMs)) {
+                      return@onPreviewKeyEvent true
+                    }
+                    if (vertical && paced && rowScrollActive) {
+                      if (!repeat) pendingMove = event.key
+                      return@onPreviewKeyEvent true
+                    }
+                    if (vertical) lastVerticalMoveAt.longValue = now
                     when (event.key) {
                       Key.Back -> onBackKey?.invoke() ?: false
                       Key.DirectionUp,
                       Key.DirectionDown,
                       Key.DirectionLeft,
-                      Key.DirectionRight -> moveFocus(index, event.key)
+                      Key.DirectionRight -> moveFocus(index, event.key, repeat)
                       else -> false
                     }
                 },
@@ -424,6 +477,7 @@ private suspend fun LazyListState.scrollRowIntoStablePosition(
   focusedRowTopPaddingPx: Int,
   focusScale: Float,
   smoothScroll: Boolean,
+  linear: Boolean = false,
 ) {
   val safeRow = row.coerceIn(0, (totalRows - 1).coerceAtLeast(0))
   val layout = layoutInfo
@@ -449,7 +503,7 @@ private suspend fun LazyListState.scrollRowIntoStablePosition(
         value = scrollDelta.toFloat(),
         animationSpec = tween(
           durationMillis = BiliMotion.FocusScrollMs,
-          easing = BiliMotion.FocusScrollEasing,
+          easing = if (linear) LinearEasing else BiliMotion.FocusScrollEasing,
         ),
       )
     } else {
@@ -465,6 +519,38 @@ private suspend fun LazyListState.scrollRowIntoStablePosition(
   } else {
     scrollToItem(safeRow, scrollOffset = -focusedRowTopPaddingPx)
   }
+}
+
+/**
+ * Leanback's FOCUS_SCROLL_ITEM for this grid: the focus walks the rows already on screen, and the grid only
+ * shifts by what brings a row at the edge fully into view, in one even slide of [durationMs]. On a TV that
+ * redraws the grid in ~70 ms a per-key slide showed as a few visible steps; the rarer edge slide reads as a
+ * crisp move, and a held key chains them at one pace.
+ */
+private suspend fun LazyListState.scrollRowIntoView(
+  row: Int,
+  scrollInsetPx: Int,
+  focusedRowTopPaddingPx: Int,
+  focusScale: Float,
+  durationMs: Int,
+) {
+  val layout = layoutInfo
+  val item = layout.visibleItemsInfo.firstOrNull { it.index == row }
+  if (item == null) {
+    scrollToItem(row, scrollOffset = -focusedRowTopPaddingPx)
+    return
+  }
+  val focusOverflowPx = ((item.size * (focusScale - 1f)) / 2f).roundToInt()
+  val edgeInsetPx = scrollInsetPx + focusOverflowPx
+  val top = layout.viewportStartOffset + focusedRowTopPaddingPx.coerceAtLeast(edgeInsetPx)
+  val bottom = layout.viewportEndOffset - edgeInsetPx
+  val delta = when {
+    item.offset < top -> item.offset - top
+    item.offset + item.size > bottom -> item.offset + item.size - bottom
+    else -> 0
+  }
+  if (delta == 0) return
+  animateScrollBy(delta.toFloat(), tween(durationMs, easing = LinearEasing))
 }
 
 private fun Int.shouldLoadMore(totalItems: Int, threshold: Int): Boolean {

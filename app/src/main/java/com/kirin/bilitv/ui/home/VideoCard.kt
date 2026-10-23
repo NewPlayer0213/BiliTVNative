@@ -39,6 +39,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
@@ -63,6 +64,7 @@ import com.kirin.bilitv.ui.focus.BiliFocusableSurface
 import com.kirin.bilitv.ui.glass.LocalLiquidGlassBackdrop
 import com.kirin.bilitv.ui.i18n.convertChineseText
 import com.kirin.bilitv.ui.settings.LocalBiliPerformancePolicy
+import com.kirin.bilitv.ui.settings.bakedCoverCornerRadiusPx
 import com.kirin.bilitv.ui.theme.BiliColors
 import com.kirin.bilitv.ui.theme.BiliFocus
 import com.kirin.bilitv.ui.theme.BiliMotion
@@ -171,13 +173,19 @@ fun VideoCard(
     } else {
       BiliFocus.RestingLift
     },
+    // Smooth mode: the cover and the info strip paint every pixel of the card themselves, so the surface
+    // underneath stays transparent instead of being drawn and then covered.
     restingBackgroundColor = if (cinematicEffectsEnabled) {
       cardSurface
+    } else if (!focusEffectsEnabled) {
+      BiliColors.Transparent
     } else {
       null
     },
     focusedBackgroundColor = if (cinematicEffectsEnabled) {
       cardSurface
+    } else if (!focusEffectsEnabled) {
+      BiliColors.Transparent
     } else {
       null
     },
@@ -220,7 +228,9 @@ fun VideoCard(
             modifier = Modifier
               .fillMaxWidth()
               .then(
-                if (focused && !interactionPaused) {
+                // A marquee is motion too: on a TV that redraws the whole screen per frame it kept the GPU
+                // busy around the clock (40 fps while idle), so it follows the motion switch.
+                if (focused && !interactionPaused && focusEffectsEnabled) {
                   Modifier.basicMarquee(
                     iterations = Int.MAX_VALUE,
                     repeatDelayMillis = BiliMotion.TitleMarqueeRepeatDelayMs,
@@ -398,10 +408,10 @@ private fun OwnerAvatar(video: VideoSummary) {
   val performancePolicy = LocalBiliPerformancePolicy.current
   val homeColors = LocalHomeColors.current
   val fallbackPainter = ColorPainter(homeColors.glassSurfaceStrong)
+  val bakedCircle = !performancePolicy.motionEnabled
   val modifier = Modifier
     .size(BiliSizing.OwnerAvatarSize)
-    .clip(CircleShape)
-    .background(homeColors.glassSurfaceStrong)
+    .then(if (bakedCircle) Modifier.background(homeColors.glassSurfaceStrong, CircleShape) else Modifier.clip(CircleShape).background(homeColors.glassSurfaceStrong))
 
   if (video.ownerFace.isBlank()) {
     Box(modifier = modifier)
@@ -415,6 +425,7 @@ private fun OwnerAvatar(video: VideoSummary) {
     performancePolicy.ownerAvatarSizePx,
     performancePolicy.ownerAvatarRgb565Enabled,
     performancePolicy.imageMemoryCacheEnabled,
+    bakedCircle,
   ) {
     buildOwnerAvatarRequest(
       context = context,
@@ -422,15 +433,18 @@ private fun OwnerAvatar(video: VideoSummary) {
       sizePx = performancePolicy.ownerAvatarSizePx,
       allowRgb565 = performancePolicy.ownerAvatarRgb565Enabled,
       memoryCacheEnabled = performancePolicy.imageMemoryCacheEnabled,
+      circleCrop = bakedCircle,
     )
   }
 
+  // With the circle baked into the bitmap a square placeholder would show its corners; the shaped background
+  // underneath stands in for it then.
   AsyncImage(
     model = request,
     contentDescription = null,
     contentScale = ContentScale.Crop,
-    placeholder = fallbackPainter,
-    error = fallbackPainter,
+    placeholder = if (bakedCircle) null else fallbackPainter,
+    error = if (bakedCircle) null else fallbackPainter,
     modifier = modifier,
   )
 }
@@ -502,6 +516,9 @@ private fun VideoCover(
 ) {
   val context = LocalContext.current
   val performancePolicy = LocalBiliPerformancePolicy.current
+  // Smooth mode: corners come baked into the bitmap (Coil), so the cover needs no clip on every frame.
+  val coverCornerRadiusPx = performancePolicy.bakedCoverCornerRadiusPx(LocalDensity.current)
+  val bakedCorners = coverCornerRadiusPx > 0f
   val homeColors = LocalHomeColors.current
   val request = remember(
     context,
@@ -510,6 +527,7 @@ private fun VideoCover(
     performancePolicy.videoThumbnailHeightPx,
     performancePolicy.videoThumbnailRgb565Enabled,
     performancePolicy.imageMemoryCacheEnabled,
+    coverCornerRadiusPx,
   ) {
     buildVideoThumbnailRequest(
       context = context,
@@ -518,6 +536,7 @@ private fun VideoCover(
       heightPx = performancePolicy.videoThumbnailHeightPx,
       allowRgb565 = performancePolicy.videoThumbnailRgb565Enabled,
       memoryCacheEnabled = performancePolicy.imageMemoryCacheEnabled,
+      cornerRadiusPx = coverCornerRadiusPx,
     )
   }
   val title = convertChineseText(video.title)
@@ -578,15 +597,20 @@ private fun VideoCover(
         key = sharedKey,
         enabled = performancePolicy.motionEnabled,
       )
-      .clip(RoundedCornerShape(BiliRadius.Card))
-      .background(coverBackground),
+      .then(
+        if (bakedCorners) {
+          Modifier.background(coverBackground, RoundedCornerShape(topStart = BiliRadius.Card, topEnd = BiliRadius.Card))
+        } else {
+          Modifier.clip(RoundedCornerShape(BiliRadius.Card)).background(coverBackground)
+        },
+      ),
   ) {
     AsyncImage(
       model = request,
       contentDescription = title,
       contentScale = ContentScale.Crop,
-      placeholder = fallbackPainter,
-      error = fallbackPainter,
+      placeholder = if (bakedCorners) null else fallbackPainter,
+      error = if (bakedCorners) null else fallbackPainter,
       modifier = Modifier.fillMaxSize(),
     )
 

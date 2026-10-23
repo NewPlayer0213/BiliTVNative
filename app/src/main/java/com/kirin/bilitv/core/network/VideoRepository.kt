@@ -6,12 +6,14 @@ import com.kirin.bilitv.core.model.HomeSection
 import com.kirin.bilitv.core.model.VideoSummary
 import com.kirin.bilitv.core.storage.SessionStore
 import kotlinx.coroutines.flow.first
+import java.io.File
 
 class VideoRepository(
   private val apiClient: BiliApiClient,
   private val wbiKeyRepository: WbiKeyRepository,
   private val wbiSigner: WbiSigner,
   private val sessionStore: SessionStore,
+  private val recommendCacheFile: File? = null,
 ) {
   private val spaceVideoRepository = SpaceVideoRepository(
     apiClient = apiClient,
@@ -30,6 +32,7 @@ class VideoRepository(
     wbiKeyRepository = wbiKeyRepository,
     wbiSigner = wbiSigner,
     sessionStore = sessionStore,
+    recommendCacheFile = recommendCacheFile,
   )
   private val userFeedRepository = UserFeedRepository(
     apiClient = apiClient,
@@ -48,9 +51,13 @@ class VideoRepository(
     )
   }
 
-  suspend fun getRecommendVideos(idx: Int = 0): List<VideoSummary> {
-    return homeVideoRepository.getRecommendVideos(idx)
+  suspend fun getRecommendVideos(idx: Int = 0, keepForNextLaunch: Boolean = false): List<VideoSummary> {
+    return homeVideoRepository.getRecommendVideos(idx, keepForNextLaunch)
   }
+
+  suspend fun peekRecommendVideos(): List<VideoSummary>? = homeVideoRepository.peekRecommendVideos()
+
+  suspend fun cacheRecommendVideos() = homeVideoRepository.cacheRecommendVideos()
 
   suspend fun getRelatedVideos(bvid: String): List<VideoSummary> {
     return homeVideoRepository.getRelatedVideos(bvid)

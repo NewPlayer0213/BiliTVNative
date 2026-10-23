@@ -218,4 +218,6 @@ private fun Context.defaultVisualPerformanceMode(): AppVisualPerformanceMode {
   }
 }
 
-private const val SmoothDefaultMemoryThresholdBytes = 1024L * 1024L * 1024L
+// On a Chromecast HD (1.4 GB) the home grid drew at about 7 fps in Balanced; Smooth is the only mode it keeps up
+// with. 1.5 GB catches it while 2 GB boxes, which report about 1.9 GB, keep Balanced.
+private const val SmoothDefaultMemoryThresholdBytes = 1536L * 1024L * 1024L
