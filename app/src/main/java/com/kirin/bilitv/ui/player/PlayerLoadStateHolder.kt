@@ -12,7 +12,11 @@ import com.kirin.bilitv.core.player.PlaybackRepository
 import com.kirin.bilitv.core.player.PlaybackRequest
 import com.kirin.bilitv.core.player.PlaybackTrack
 import com.kirin.bilitv.core.player.PlaybackVideoMetadata
+import com.kirin.bilitv.ui.theme.BiliMotion
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal data class PlayerLoadViewState(
   val activeRequest: PlaybackRequest,
@@ -87,20 +91,34 @@ internal class PlayerLoadStateHolder(
       if (viewState.activeRequest != loadRequest) return null
       viewState = viewState.copy(displayRequest = resolvedRequest)
 
-      val info = playbackRepository.getPlaybackInfo(
-        request = resolvedRequest,
-        codecPreference = codecPreference,
-        qualityPreference = qualityPreference,
-      )
+      val resumeFromAccount = resolvedRequest.preferredQualityId == null && !resolvedRequest.forceStartPosition
+      // The account's position (the phone app reports there) is asked for alongside the play URL, not after it,
+      // and once the play URL is in it gets only a short grace: a slow answer must not hold the first frame.
+      val (info, accountProgressMs) = coroutineScope {
+        val progress = async {
+          if (resumeFromAccount) playbackRepository.getAccountProgressMs(resolvedRequest.bvid, cid) else null
+        }
+        val info = playbackRepository.getPlaybackInfo(
+          request = resolvedRequest,
+          codecPreference = codecPreference,
+          qualityPreference = qualityPreference,
+        )
+        val accountProgressMs = withTimeoutOrNull(BiliMotion.AccountProgressGraceMs) { progress.await() }
+        if (accountProgressMs == null) progress.cancel()
+        info to accountProgressMs
+      }
       if (info.videoTracks.isEmpty() || info.audioTracks.isEmpty()) {
         fail(emptyTracksMessage)
         return null
       }
 
-      val requestedStartPositionMs = if (resolvedRequest.preferredQualityId != null || resolvedRequest.forceStartPosition) {
+      // The account's position wins over the one this TV saved: the phone reports there, and the TV reports
+      // too, so the account is the newer of the two unless its last report failed.
+      val requestedStartPositionMs = if (!resumeFromAccount) {
         resolvedRequest.startPositionMs
       } else {
-        playbackRepository.getSavedProgress(info.bvid, info.cid)?.positionMs
+        accountProgressMs
+          ?: playbackRepository.getSavedProgress(info.bvid, info.cid)?.positionMs
           ?: resolvedRequest.startPositionMs
       }
       val readyState = PlayerScreenState.Ready(

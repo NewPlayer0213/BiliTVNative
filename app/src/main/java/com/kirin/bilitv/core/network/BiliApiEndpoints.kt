@@ -12,6 +12,8 @@ object BiliApiEndpoints {
   const val Popular = "$ApiBase/x/web-interface/popular"
   const val RegionLatest = "$ApiBase/x/web-interface/newlist"
   const val View = "$ApiBase/x/web-interface/view"
+  // The plain view endpoint answers 412 (risk control) to a browser User-Agent without browser cookies; the wbi one, signed, does not.
+  const val WbiView = "$ApiBase/x/web-interface/wbi/view"
   const val ArchiveRelated = "$ApiBase/x/web-interface/archive/related"
   const val SpaceArcSearch = "$ApiBase/x/space/wbi/arc/search"
   const val Relation = "$ApiBase/x/relation"
@@ -29,6 +31,7 @@ object BiliApiEndpoints {
   const val SponsorBlockSkipSegments = "https://bsbsb.top/api/skipSegments"
   const val PlayerOnlineTotal = "$ApiBase/x/player/online/total"
   const val PlayerHeartbeat = "$ApiBase/x/click-interface/web/heartbeat"
+  const val PlayerInfo = "$ApiBase/x/player/wbi/v2"
   const val TvQrCode = "$PassportBase/x/passport-tv-login/qrcode/auth_code"
   const val TvQrPoll = "$PassportBase/x/passport-tv-login/qrcode/poll"
 

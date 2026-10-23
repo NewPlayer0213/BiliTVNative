@@ -291,6 +291,9 @@ object BiliMotion {
   const val FocusSpringStiffness = 560f
   const val PlayerControlsAutoHideMs = 4_000L
   const val PlayerProgressUpdateMs = 500L
+  const val PlayerHeartbeatMs = 15_000L
+  // How long the first frame waits for the account's resume position after the play URL is in.
+  const val AccountProgressGraceMs = 300L
   const val PlayerSeekPreviewAutoCommitMs = 1_200L
   const val PlayerClockUpdateMs = 30_000L
   const val TouchPullRefreshSpinnerRotationMs = 720

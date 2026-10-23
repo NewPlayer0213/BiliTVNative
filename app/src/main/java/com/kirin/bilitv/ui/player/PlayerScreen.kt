@@ -1198,10 +1198,17 @@ fun PlayerScreen(
   val displayRequestState = rememberUpdatedState(displayRequest)
 
   LaunchedEffect(player, playerState) {
+    var lastHeartbeatMs = SystemClock.elapsedRealtime()
     while (isActive) {
       val nowMs = SystemClock.elapsedRealtime()
       val currentPositionMs = player.currentPosition.takeIf { it >= 0L } ?: 0L
       playbackPositionState.longValue = currentPositionMs
+      // Like the web player, the account's position is also sent while playing, so a crash, a power cut or
+      // the TV sleeping mid-video does not lose it (pause and exit report on their own).
+      if (player.isPlaying && nowMs - lastHeartbeatMs >= BiliMotion.PlayerHeartbeatMs) {
+        lastHeartbeatMs = nowMs
+        launch { reportProgressNow() }
+      }
       playbackDurationState.longValue = player.duration.takeIf { it != C.TIME_UNSET }
         ?: playbackDurationState.longValue
       playbackBufferedPercentageState.longValue = player.bufferedPercentage.toLong()

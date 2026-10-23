@@ -14,6 +14,7 @@ import com.kirin.bilitv.core.network.requireBiliCodeOk
 import com.kirin.bilitv.core.network.rootObject
 import com.kirin.bilitv.core.network.string
 import com.kirin.bilitv.core.storage.SessionStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -96,13 +97,19 @@ class PlaybackRepository(
     )
   }
 
+  private suspend fun signedViewParams(bvid: String): Map<String, String> {
+    val params = mapOf("bvid" to bvid)
+    val keys = wbiKeyRepository.ensureKeys() ?: return params
+    return wbiSigner.sign(params, keys.imgKey, keys.subKey)
+  }
+
   suspend fun resolveCid(bvid: String): Long {
     if (bvid.isBlank()) {
       return 0L
     }
     val root = apiClient.getJson(
-      url = BiliApiEndpoints.View,
-      params = mapOf("bvid" to bvid),
+      url = BiliApiEndpoints.WbiView,
+      params = signedViewParams(bvid),
     ).rootObject()
     root.requireBiliCodeOk("view")
     val data = root.obj("data") ?: return 0L
@@ -115,8 +122,8 @@ class PlaybackRepository(
 
   suspend fun getVideoMetadata(request: PlaybackRequest): PlaybackVideoMetadata {
     val root = apiClient.getJson(
-      url = BiliApiEndpoints.View,
-      params = mapOf("bvid" to request.bvid),
+      url = BiliApiEndpoints.WbiView,
+      params = signedViewParams(request.bvid),
     ).rootObject()
     root.requireBiliCodeOk("view metadata")
 
@@ -193,6 +200,30 @@ class PlaybackRepository(
 
   suspend fun getAirJumpSegments(bvid: String): List<AirJumpSegment> {
     return airJumpRepository.getAirJumpSegments(bvid)
+  }
+
+  /**
+   * Where the account last stopped in this video, in ms: the phone app reports its position there too, so a
+   * video started on the phone carries on here. Null when logged out, unknown, or the position is another part's.
+   */
+  suspend fun getAccountProgressMs(bvid: String, cid: Long): Long? {
+    val sessData = sessionStore.sessData.first()
+    if (sessData.isNullOrBlank() || bvid.isBlank() || cid <= 0L) return null
+    val params = mapOf("bvid" to bvid, "cid" to cid.toString())
+    val keys = wbiKeyRepository.ensureKeys(sessData)
+    val signedParams = if (keys != null) wbiSigner.sign(params, keys.imgKey, keys.subKey) else params
+    val data = try {
+      apiClient.getJson(url = BiliApiEndpoints.PlayerInfo, params = signedParams, sessData = sessData)
+        .rootObject()
+        .also { it.requireBiliCodeOk("player info") }
+        .obj("data")
+    } catch (error: CancellationException) {
+      throw error
+    } catch (_: Exception) {
+      null
+    } ?: return null
+    val lastCid = data.long("last_play_cid")
+    return data.long("last_play_time").takeIf { it > 0L && (lastCid <= 0L || lastCid == cid) }
   }
 
   suspend fun getSavedProgress(bvid: String, cid: Long): PlaybackProgress? {
