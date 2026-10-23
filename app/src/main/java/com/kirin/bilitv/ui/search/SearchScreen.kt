@@ -597,7 +597,7 @@ private fun SearchKeyboardView(
           .fillMaxHeight(),
         verticalArrangement = Arrangement.Top,
       ) {
-        SearchInputText(searchText = searchText)
+        SearchInputText(searchText = searchText, onTextChange = onTextChange, onSearch = onSearch)
         Spacer(modifier = Modifier.height(BiliSpacing.Md))
         Row(
           horizontalArrangement = Arrangement.spacedBy(BiliSpacing.Md),
@@ -660,28 +660,51 @@ private fun SearchKeyboardView(
 }
 
 @Composable
-private fun SearchInputText(searchText: String) {
+private fun SearchInputText(
+  searchText: String,
+  onTextChange: (String) -> Unit,
+  onSearch: (String) -> Unit,
+) {
+  // A real text field, so the TV's own keyboard (Gboard with Zhuyin, Cangjie...) can type here; the letter
+  // grid below stays for pinyin.
   val homeColors = LocalHomeColors.current
-  val placeholder = stringResource(R.string.search_input_placeholder)
-  val displayText = if (searchText.isBlank()) placeholder else convertChineseText(searchText)
-
-  Box(
+  val shape = RoundedCornerShape(BiliRadius.Card)
+  var focused by remember { mutableStateOf(false) }
+  BasicTextField(
+    value = searchText,
+    onValueChange = onTextChange,
     modifier = Modifier
       .fillMaxWidth()
       .height(BiliSizing.SearchInputHeight)
-      .background(homeColors.glassSurfaceStrong, RoundedCornerShape(BiliRadius.Card))
+      .onFocusChanged { focused = it.isFocused }
+      .background(homeColors.glassSurfaceStrong, shape)
+      .border(BorderStroke(BiliFocus.RestingBorderWidth, if (focused) homeColors.accent else homeColors.glassBorder), shape)
       .padding(horizontal = BiliSpacing.Lg),
-    contentAlignment = Alignment.CenterStart,
-  ) {
-    Text(
-      text = displayText,
-      color = if (searchText.isBlank()) homeColors.textTertiary else homeColors.textPrimary,
+    singleLine = true,
+    textStyle = TextStyle(
+      color = homeColors.textPrimary,
       fontSize = BiliTypography.SearchInput,
       fontWeight = FontWeight.Bold,
-      maxLines = 1,
-      overflow = TextOverflow.Ellipsis,
-    )
-  }
+    ),
+    cursorBrush = SolidColor(homeColors.accent),
+    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+    keyboardActions = KeyboardActions(onSearch = { onSearch(searchText) }),
+    decorationBox = { innerTextField ->
+      Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+        if (searchText.isBlank()) {
+          Text(
+            text = stringResource(R.string.search_input_placeholder),
+            color = homeColors.textTertiary,
+            fontSize = BiliTypography.SearchInput,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+        }
+        innerTextField()
+      }
+    },
+  )
 }
 
 @Composable
